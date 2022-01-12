@@ -23,29 +23,51 @@ class Ana { //: public TObject {
 
 public:
   Ana();
-  Ana(Int_t _nRun);
+  Ana(Int_t _nRun, const char* _runTitle = NULL);
   ~Ana();
 
-  void LoadRun(Int_t _nRun);
+  void LoadRun(Int_t _nRun, const char* _runTitle = NULL);
   void LoadTree();
 
-  void MakeCoin(ULong64_t tWidth);
+  void LoadCoinFile();
+  void MakeCoin(ULong64_t tWidth); // in [ps]
   void LoadCoinTree();
+
+  void MakeMult(ULong64_t tWidth); // in [ps]
   
   Int_t GetEntry(Long64_t entry); 
   TGraph* DrawWave(Int_t _iEv, Bool_t flagBL = false, const char* option = "AC");
 
   void Loop();
   void Loop2();
+  void Loop3(Double_t* gain);  
+
+  void DrawSpectra();
+  void FitSpectrum(TH1* hist, Double_t sig = 50, Bool_t drawFlag = true);
+  void FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR,
+			 Double_t sig = 50, Bool_t drawFlag = true);
+
+  void DrawGlobalTitle();
+
+  void FitSingleChannel(Double_t sig = 50, Bool_t doubleFlag = false,
+			Double_t lowR = -1, Double_t uppR = -1);
+  void FitEachChannel(Double_t sig = 50);
   
 public:
   Int_t nRun;
+  TString runName;
+  TString runTitle;
   
   TFile *file;
   TTree *tree;
 
   TFile *fileCoin;
   TTree *treeCoin;
+
+  TFile *fileMult;
+  TTree *treeMult;
+  
+  Bool_t noWave;
   
   ////////////////////////////////////////////////////////////
   // Tree Branches
@@ -63,7 +85,14 @@ public:
   Bool_t flagLastCoin;
   Int_t nCoin;
   ////////////////////////////////////////////////////////////
-  
+
+  ////////////////////////////////////////////////////////////
+  // MultiTree Branches
+  Int_t nChannel;
+  ULong64_t       Timestamps[4];
+  Int_t        Energies[4];
+  ////////////////////////////////////////////////////////////
+
   Wave* wave;
 };
 
