@@ -1,9 +1,9 @@
 TARGET = libMPPC
 
-SRC := Ana.cc Wave.cc
+SRC := Ana.cc Wave.cc AnaMult.cc
 OBJ := $(SRC:.cc=.o)
 INC = .
-HDR := Ana.hh Wave.hh
+HDR := Ana.hh Wave.hh AnaMult.hh
 LINKDEF = LinkDef.hh
 
 DICTSRC = $(TARGET)_dict.cc

@@ -283,12 +283,12 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag) {
     ////////////////////
     // real fit
     TF1 *fresp = new TF1(Form("resp%d",i),"gaus(0)+pol2(3)",
-			 posPeaks[i] - 5*fitParGaus[2],
-			 posPeaks[i] + 5*fitParGaus[2]);
+			 posPeaks[i] - 2*fitParGaus[2],
+			 posPeaks[i] + 2*fitParGaus[2]);
     fresp->SetParameters(fitParGaus[0],fitParGaus[1],fitParGaus[2],
 			 0,0,0);
-    fitRes = hist->Fit(fresp,"Q0",0,posPeaks[i] - 5*fitParGaus[2],
-		       posPeaks[i] + 5*fitParGaus[2]);
+    fitRes = hist->Fit(fresp,"Q0",0,posPeaks[i] - 2*fitParGaus[2],
+		       posPeaks[i] + 2*fitParGaus[2]);
 
     if (fitRes != 0) {
       std::cerr << "Real fit error for the peak ";
