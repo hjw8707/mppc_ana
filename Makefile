@@ -14,11 +14,11 @@ ROOTCFLAGS  = $(shell root-config --cflags)
 ROOTLDFLAGS = $(shell root-config --libs) -lSpectrum
 
 CXX = g++
-CXXFLAGS = -O2 -Wall -Werror -fPIC --std=c++11 -I. -I$(INC) -I$(HOME)/include $(ROOTCFLAGS)
-LDFLAGS = -shared -L$(HOME)/lib -lstrline -lm $(ROOTLDFLAGS)
-LIB = -L. -lMPPC -L$(HOME)/lib -lstrline -lm 
+CXXFLAGS = -O2 -Wall -Werror -fPIC --std=c++11 -I$(INC) $(ROOTCFLAGS)
+LDFLAGS = -shared -lm $(ROOTLDFLAGS)
+LIB = -L. -lMPPC -lm 
 
-.PHONY: clean install
+.PHONY: clean
 
 $(TARGET): $(OBJ) $(DICTOBJ)
 	$(CXX) -o $@.so $^ $(LDFLAGS)
@@ -35,9 +35,4 @@ clean:
 
 dictclean:
 	rm -f $(DICTSRC) $(DICTHDR)
-
-install: $(TARGET)
-	cp $(TARGET).so $(HOME)/lib
-	cp $(HDR) $(HOME)/include
-	cp $(DICTHDR) $(HOME)/lib
 
