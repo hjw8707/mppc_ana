@@ -43,14 +43,19 @@ public:
   void Loop3(Double_t* gain);  
 
   void DrawSpectra();
-  void FitSpectrum(TH1* hist, Double_t sig = 50, Bool_t drawFlag = true);
+  void FitSpectrum(TH1* hist, Double_t sig = 50, Bool_t drawFlag = true,
+		   Double_t lowR = -1, Double_t uppR = -1, Int_t maxPeak = 100,
+		   Int_t nSig = 3);
   void FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR,
-			 Double_t sig = 50, Bool_t drawFlag = true);
+			 Double_t sig = 50, Bool_t drawFlag = true,
+			 Double_t lowRP = -1, Double_t uppRP = -1,
+			 Int_t maxPeak = 100, Int_t nSig = 3);
 
   void DrawGlobalTitle();
 
   void FitSingleChannel(Double_t sig = 50, Bool_t doubleFlag = false,
-			Double_t lowR = -1, Double_t uppR = -1);
+			Double_t lowR = -1, Double_t uppR = -1, Int_t maxPeak = 100,
+			Int_t nSig = 3, Double_t lowRP = -1, Double_t uppRP = -1);
   void FitEachChannel(Double_t sig = 50);
   
 public:

@@ -248,7 +248,7 @@ void Ana::Loop3(Double_t* gain) {
   h_ph->Draw();}
 
 
-void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag) {
+void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, Double_t uppR, Int_t maxPeak, Int_t nSig) {
 
   ////////////////////////////////////////
   // Rough fit with TSpectrum
@@ -265,7 +265,7 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag) {
 
   ////////////////////////////////////////
   // peak loop
-  for (Int_t i = 0 ; i < nPeaks ; i++) {
+  for (Int_t i = 0 ; i < std::min(nPeaks, maxPeak)  ; i++) {
     //////////////////////
     // rough fit wit gaus
     Int_t fitRes = hist->Fit("gaus","Q0",0,
@@ -283,12 +283,13 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag) {
     ////////////////////
     // real fit
     TF1 *fresp = new TF1(Form("resp%d",i),"gaus(0)+pol2(3)",
-			 posPeaks[i] - 2*fitParGaus[2],
-			 posPeaks[i] + 2*fitParGaus[2]);
+			 posPeaks[i] - nSig*fitParGaus[2],
+			 posPeaks[i] + nSig*fitParGaus[2]);
     fresp->SetParameters(fitParGaus[0],fitParGaus[1],fitParGaus[2],
 			 0,0,0);
-    fitRes = hist->Fit(fresp,"Q0",0,posPeaks[i] - 2*fitParGaus[2],
-		       posPeaks[i] + 2*fitParGaus[2]);
+    fitRes = hist->Fit(fresp,0,0,
+		       posPeaks[i] - nSig*fitParGaus[2],
+		       posPeaks[i] + nSig*fitParGaus[2]);
 
     if (fitRes != 0) {
       std::cerr << "Real fit error for the peak ";
@@ -296,6 +297,16 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag) {
       continue; }
     ////////////////////
 
+    ////////////////////
+    // Resulted functions
+    fresp->SetRange(fresp->GetParameter(1) - nSig*fresp->GetParameter(2),
+		    fresp->GetParameter(1) + nSig*fresp->GetParameter(2));
+    TF1 *fbg = new TF1(Form("bg%d",i),"pol2",
+		       fresp->GetParameter(1) - nSig*fresp->GetParameter(2),
+		       fresp->GetParameter(1) + nSig*fresp->GetParameter(2));
+    fbg->SetParameters(fresp->GetParameter(3),fresp->GetParameter(4),fresp->GetParameter(5));
+    
+    
     //////////////////////////////
     // Results
     std::cout << "Peak " << i << " : ";
@@ -311,10 +322,17 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag) {
   
   ////////////////////////////////////////
   // Drawing
+  if (lowR >= 0 && uppR >= 0) hist->GetXaxis()->SetRangeUser(lowR, uppR);
+  if (lowR >= 0 && uppR <  0) hist->GetXaxis()->SetRangeUser(lowR, 4000);
+  if (lowR <  0 && uppR <  0) hist->GetXaxis()->SetRangeUser(   0, uppR);
   hist->Draw("Hist");
-  for (Int_t i = 0 ; i < nPeaks ; i++) {
+  for (Int_t i = 0 ; i < std::min(nPeaks, maxPeak) ; i++) {
     TF1* f1 = static_cast<TF1*>(gROOT->GetFunction(Form("resp%d",i)));
     f1->SetLineColor(i+1);
+    f1->Draw("SAME");  
+    f1 = static_cast<TF1*>(gROOT->GetFunction(Form("bg%d",i)));
+    f1->SetLineColor(i+1);
+    f1->SetLineStyle(2);
     f1->Draw("SAME");  }
   ////////////////////////////////////////
 
@@ -326,13 +344,13 @@ void Ana::DrawGlobalTitle() {
   pl.DrawPaveLabel(0.15,0.92,0.65,0.99,
 		   Form("Run%04d: %s",nRun,runTitle.Data()),"NDC");}
 
-void Ana::FitSingleChannel(Double_t sig, Bool_t doubleFlag, Double_t lowR, Double_t uppR) {
+void Ana::FitSingleChannel(Double_t sig, Bool_t doubleFlag, Double_t lowR, Double_t uppR, Int_t maxPeak, Int_t nSig, Double_t lowRP, Double_t uppRP) {
 
   tree->Draw("Energy>>h0(4000,0,4000)",0,"GOFF");
   TH1* h1 = static_cast<TH1*>(gDirectory->Get("h0"));
 
-  if (doubleFlag) FitSpectrumDouble(h1, lowR, uppR, sig, true);
-  else FitSpectrum(h1, sig, true);
+  if (doubleFlag) FitSpectrumDouble(h1, lowR, uppR, sig, true, lowRP, uppRP, maxPeak, nSig);
+  else FitSpectrum(h1, sig, true, lowR, uppR, maxPeak, nSig);
 }
 
 void Ana::FitEachChannel(Double_t sig) {
@@ -399,7 +417,7 @@ void Ana::MakeMult(ULong64_t tWidth) {
 	
   treeMult->Write(0,TObject::kOverwrite);}
 
-void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t sig, Bool_t drawFlag) {
+void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t sig, Bool_t drawFlag, Double_t lowRP, Double_t uppRP, Int_t maxPeak, Int_t nSig) {
 
   //////////////////////////////
   // Axis range
@@ -410,11 +428,21 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
   ts.Search(hist,sig);
 
   Int_t nPeaks = ts.GetNPeaks();
-  Double_t* posPeaks = ts.GetPositionX();
+  std::cout << nPeaks << std::endl;
+  if (nPeaks <= 1) {
+    Double_t rr = 0;
+    while (nPeaks != 2) {
+      std::cout << nPeaks << std::endl;
+      rr += 5;
+      hist->SetAxisRange(lowR - rr, uppR + rr);
+      ts.Search(hist,sig);
+      nPeaks = ts.GetNPeaks();
+      if (lowR - rr < 0 || uppR + rr > 4000) {
+	std::cerr << "No peak found." << std::endl;
+	return; }
+    }}
 
-  if (nPeaks <= 0) {
-    std::cerr << "No peak found." << std::endl;
-    return; }
+  Double_t* posPeaks = ts.GetPositionX();
   ////////////////////////////////////////
 
   ////////////////////////////////////////
@@ -440,6 +468,16 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
   for (Int_t i = 0 ; i < 3 ; i++)
     fitParGaus1[i] = hist->GetFunction("gaus")->GetParameter(i);
 
+  fitRes = hist->Fit("pol2","Q0",0, lowR, uppR);
+  if (fitRes != 0) {
+    std::cerr << "Rough fit error for the peak." << std::endl;
+    return; }
+
+  Double_t fitParBG[3];
+  for (Int_t i = 0 ; i < 3 ; i++)
+    fitParBG[i] = hist->GetFunction("pol2")->GetParameter(i);
+
+  
   //////////////////////
 
   ////////////////////
@@ -447,14 +485,27 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
   TF1 *fresp = new TF1("respd","gaus(0)+gaus(3)+pol2(6)",lowR,uppR);
   fresp->SetParameters(fitParGaus0[0],fitParGaus0[1],fitParGaus0[2],
 		       fitParGaus1[0],fitParGaus1[1],fitParGaus1[2],
-		       0,0,0);
-  fitRes = hist->Fit(fresp,"Q0",0, lowR, uppR);
+		       fitParBG   [0],fitParBG   [1],fitParBG   [2]);
+  Double_t lowFitR, uppFitR;
+  if (fitParGaus0[1] < fitParGaus1[1]) {
+    lowFitR = fitParGaus0[1] - nSig * fitParGaus0[2];
+    uppFitR = fitParGaus1[1] + nSig * fitParGaus1[2]; }
+  else {
+    lowFitR = fitParGaus1[1] - nSig * fitParGaus1[2];
+    uppFitR = fitParGaus0[1] + nSig * fitParGaus0[2]; }
+  //  fitRes = hist->Fit(fresp,"Q0",0, lowR, uppR);
+  fitRes = hist->Fit(fresp,"Q0",0, lowFitR, uppFitR);
 
   if (fitRes != 0) {
     std::cerr << "Real fit error." << std::endl;
     return; }
   ////////////////////
 
+  ////////////////////
+  // Resulted functions
+  TF1 *fbg = new TF1("bg","pol2", lowR, uppR);
+  fbg->SetParameters(fresp->GetParameter(6),fresp->GetParameter(7),fresp->GetParameter(8));
+    
   //////////////////////////////
   // Results
   std::cout << "Peak " << 0 << " : ";
@@ -475,10 +526,16 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
   
   ////////////////////////////////////////
   // Drawing
+  //////////////////////////////
+  // Axis range
+  hist->SetAxisRange(lowRP, uppRP);
   hist->Draw("Hist");
 
   fresp->SetLineColor(1);
-  fresp->Draw("SAME"); 
+  fresp->Draw("SAME");
+  fbg->SetLineColor(1);
+  fbg->SetLineStyle(2);
+  fbg->Draw("SAME");
   ////////////////////////////////////////
 
   DrawGlobalTitle();
