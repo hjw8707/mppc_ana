@@ -23,7 +23,7 @@ class Ana { //: public TObject {
 
 public:
   Ana();
-  Ana(Int_t _nRun, const char* _runTitle = NULL);
+  Ana(Int_t _nRun, const char* _runTitle = NULL, Bool_t mult = false);
   ~Ana();
 
   void LoadRun(Int_t _nRun, const char* _runTitle = NULL);
@@ -34,6 +34,7 @@ public:
   void LoadCoinTree();
 
   void MakeMult(ULong64_t tWidth); // in [ps]
+  void LoadMultTree();
   
   Int_t GetEntry(Long64_t entry); 
   TGraph* DrawWave(Int_t _iEv, Bool_t flagBL = false, const char* option = "AC");
@@ -45,18 +46,24 @@ public:
   void DrawSpectra();
   void FitSpectrum(TH1* hist, Double_t sig = 50, Bool_t drawFlag = true,
 		   Double_t lowR = -1, Double_t uppR = -1, Int_t maxPeak = 100,
-		   Int_t nSig = 3);
+		   Double_t nSig = 3, Int_t bgSel = 0);
   void FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR,
 			 Double_t sig = 50, Bool_t drawFlag = true,
 			 Double_t lowRP = -1, Double_t uppRP = -1,
-			 Int_t maxPeak = 100, Int_t nSig = 3);
+			 Int_t maxPeak = 100, Double_t nSig = 3,
+			 Int_t bgSel = 0);
 
   void DrawGlobalTitle();
 
   void FitSingleChannel(Double_t sig = 50, Bool_t doubleFlag = false,
 			Double_t lowR = -1, Double_t uppR = -1, Int_t maxPeak = 100,
-			Int_t nSig = 3, Double_t lowRP = -1, Double_t uppRP = -1);
-  void FitEachChannel(Double_t sig = 50);
+			Double_t nSig = 3, Double_t lowRP = -1, Double_t uppRP = -1);
+  void FitEachChannel(Double_t sig = 50, Double_t lowR = -1, Double_t uppR = -1,
+		      Int_t maxpeak = 100, Double_t nSig = 3);
+
+  void FitChannelSum(Double_t sig = 50, Double_t lowR = -1, Double_t uppR = -1,
+		     Int_t maxpeak = 100, Double_t nSig = 3, Int_t bgSel = 0,
+		     Bool_t flagDouble = false, Bool_t flagGeo = false);
   
 public:
   Int_t nRun;
@@ -73,6 +80,7 @@ public:
   TTree *treeMult;
   
   Bool_t noWave;
+  Bool_t loadMult;
   
   ////////////////////////////////////////////////////////////
   // Tree Branches
@@ -94,7 +102,7 @@ public:
   ////////////////////////////////////////////////////////////
   // MultiTree Branches
   Int_t nChannel;
-  ULong64_t       Timestamps[4];
+  Long64_t       Timestamps[4];
   Int_t        Energies[4];
   ////////////////////////////////////////////////////////////
 

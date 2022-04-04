@@ -8,22 +8,25 @@
 
 Ana::Ana() {}
 
-Ana::Ana(Int_t _nRun, const char* _runTitle):
+Ana::Ana(Int_t _nRun, const char* _runTitle, Bool_t mult):
   file(NULL), tree(NULL),
   fileCoin(NULL), treeCoin(NULL),
-  noWave(true), wave(NULL) {
+  noWave(true), loadMult(mult), wave(NULL) {
   LoadRun(_nRun, _runTitle);}
 
 Ana::~Ana() {
   if (wave) delete wave;
   if (file) delete file;
-  if (fileCoin) delete fileCoin; }
+  if (fileCoin) delete fileCoin;
+  if (fileMult) delete fileMult; }
 
 void Ana::LoadRun(Int_t _nRun, const char* _runTitle) {
   nRun = _nRun;
   if (_runTitle) runTitle = _runTitle;
   else runTitle.Clear();
-  
+
+  ////////////////////////////////////////////////////////////
+  // obtaining a run name from the run number
   TSystemDirectory *tsd = new TSystemDirectory("tsd",".");
   runName.Clear();
   for (const auto&& obj: *tsd->GetListOfFiles()) {
@@ -37,12 +40,13 @@ void Ana::LoadRun(Int_t _nRun, const char* _runTitle) {
   if (runName.IsNull()) {
     std::cerr << "No such a run can be found." << std::endl;
     return; }
-
+  ////////////////////////////////////////////////////////////
+  
   tsd = new TSystemDirectory("tsd",Form("%s/UNFILTERED",runName.Data()));
   for (const auto&& obj: *tsd->GetListOfFiles()) {
     if (obj->IsFolder()) continue;
     TString fileName(obj->GetName());
-    if (fileName.Contains(Form("Data_%s",runName.Data()))) {
+    if (!loadMult && fileName.Contains(Form("Data_%s",runName.Data()))) {
       file = new TFile(Form("%s/%s",tsd->GetTitle(),fileName.Data()));
       if (!file->IsOpen()) {
 	std::cerr << "No such a root file can be found." << std::endl;
@@ -51,6 +55,15 @@ void Ana::LoadRun(Int_t _nRun, const char* _runTitle) {
       std::cout << "Tree loaded." << std::endl;
       LoadTree();
       LoadCoinFile();
+      break;}
+    if (loadMult && fileName.Contains(Form("Mult_%s",runName.Data()))) {
+      fileMult = new TFile(Form("%s/%s",tsd->GetTitle(),fileName.Data()));
+      if (!fileMult->IsOpen()) {
+	std::cerr << "No such a root file can be found." << std::endl;
+	return; }
+      treeMult = static_cast<TTree*>(fileMult->Get("mult"));
+      std::cout << "Mult. Tree loaded." << std::endl;
+      LoadMultTree();
       break;}}
   delete tsd;}
 
@@ -92,6 +105,14 @@ void Ana::LoadCoinTree() {
    treeCoin->SetBranchAddress("LastCoin", &flagLastCoin);
    treeCoin->SetBranchAddress("NCoin", &nCoin);
    std::cout << "Tree branches for coin. set." << std::endl;}
+
+void Ana::LoadMultTree() {
+  if (!treeMult) return;
+  treeMult->SetBranchAddress("nCh", &nChannel);
+  treeMult->SetBranchAddress("time", Timestamps);
+  treeMult->SetBranchAddress("energy", Energies);
+  std::cout << "Tree branches for mult. set." << std::endl;}
+
 
 Int_t Ana::GetEntry(Long64_t entry) {
   if (!tree) return 0;
@@ -248,8 +269,9 @@ void Ana::Loop3(Double_t* gain) {
   h_ph->Draw();}
 
 
-void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, Double_t uppR, Int_t maxPeak, Int_t nSig) {
+void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, Double_t uppR, Int_t maxPeak, Double_t nSig, Int_t bgSel) {
 
+  hist->SetAxisRange(lowR, uppR);
   ////////////////////////////////////////
   // Rough fit with TSpectrum
   TSpectrum ts;
@@ -268,7 +290,7 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, D
   for (Int_t i = 0 ; i < std::min(nPeaks, maxPeak)  ; i++) {
     //////////////////////
     // rough fit wit gaus
-    Int_t fitRes = hist->Fit("gaus","Q0",0,
+    Int_t fitRes = hist->Fit("gaus",0,0,
 			     posPeaks[i] - sig,
 			     posPeaks[i] + sig);
     if (fitRes != 0) {
@@ -276,17 +298,61 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, D
       std::cerr << i << "." <<  std::endl;
       continue; }
 
-    Double_t* fitParGaus;
-    fitParGaus = hist->GetFunction("gaus")->GetParameters();
+    Double_t fitParGaus[3];
+    fitParGaus[0] = hist->GetFunction("gaus")->GetParameter(0);
+    fitParGaus[1] = hist->GetFunction("gaus")->GetParameter(1);
+    fitParGaus[2] = hist->GetFunction("gaus")->GetParameter(2);
+
+    Double_t fitParBG[50];
+    if (bgSel == 0) { // polynomial BG
+      fitRes = hist->Fit("pol2","Q0",0,
+			 posPeaks[i] - nSig*fitParGaus[2],
+			 posPeaks[i] + nSig*fitParGaus[2]);
+      if (fitRes != 0) {
+	std::cerr << "Rough fit error for the peak ";
+	std::cerr << i << "." <<  std::endl;
+	continue; }
+      for (Int_t j = 0 ; j < 3 ; j++) 
+	fitParBG[j] = hist->GetFunction("pol2")->GetParameter(j);}
+
+    if (bgSel == 1) { // exponential BG
+      fitRes = hist->Fit("expo","Q0",0,
+			 posPeaks[i] - nSig*fitParGaus[2],
+			 posPeaks[i] + nSig*fitParGaus[2]);
+      if (fitRes != 0) {
+	std::cerr << "Rough fit error for the peak ";
+	std::cerr << i << "." <<  std::endl;
+	continue; }
+      fitParBG[0] = hist->GetFunction("expo")->GetParameter(0);
+      fitParBG[1] = hist->GetFunction("expo")->GetParameter(1);
+      
+      fitRes = hist->Fit("expo","Q0",0,
+			 posPeaks[i] - nSig*fitParGaus[2],
+			 posPeaks[i] + nSig*fitParGaus[2]);
+      if (fitRes != 0) {
+	std::cerr << "Rough fit error for the peak ";
+	std::cerr << i << "." <<  std::endl;
+	continue; }
+      fitParBG[2] = hist->GetFunction("expo")->GetParameter(0);
+      fitParBG[3] = hist->GetFunction("expo")->GetParameter(1) * 2;}
+
     //////////////////////
 
     ////////////////////
     // real fit
-    TF1 *fresp = new TF1(Form("resp%d",i),"gaus(0)+pol2(3)",
-			 posPeaks[i] - nSig*fitParGaus[2],
-			 posPeaks[i] + nSig*fitParGaus[2]);
-    fresp->SetParameters(fitParGaus[0],fitParGaus[1],fitParGaus[2],
-			 0,0,0);
+    TF1 *fresp;
+    if (bgSel == 0) {
+      fresp = new TF1(Form("resp%d",i),"gaus(0)+pol2(3)",
+		      posPeaks[i] - nSig*fitParGaus[2],
+		      posPeaks[i] + nSig*fitParGaus[2]);
+      fresp->SetParameters(fitParGaus[0],fitParGaus[1],fitParGaus[2],
+			   fitParBG[0],fitParBG[1],fitParBG[2]);}
+    else {
+      fresp = new TF1(Form("resp%d",i),"gaus(0)+expo(3)+expo(5)",
+		      posPeaks[i] - nSig*fitParGaus[2],
+		      posPeaks[i] + nSig*fitParGaus[2]);
+      fresp->SetParameters(fitParGaus[0],fitParGaus[1],fitParGaus[2],
+			   fitParBG[0],fitParBG[1],fitParBG[2],fitParBG[3]);}
     fitRes = hist->Fit(fresp,0,0,
 		       posPeaks[i] - nSig*fitParGaus[2],
 		       posPeaks[i] + nSig*fitParGaus[2]);
@@ -301,11 +367,22 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, D
     // Resulted functions
     fresp->SetRange(fresp->GetParameter(1) - nSig*fresp->GetParameter(2),
 		    fresp->GetParameter(1) + nSig*fresp->GetParameter(2));
-    TF1 *fbg = new TF1(Form("bg%d",i),"pol2",
-		       fresp->GetParameter(1) - nSig*fresp->GetParameter(2),
-		       fresp->GetParameter(1) + nSig*fresp->GetParameter(2));
-    fbg->SetParameters(fresp->GetParameter(3),fresp->GetParameter(4),fresp->GetParameter(5));
-    
+    TF1 *fbg;
+    if (bgSel == 0) {
+      fbg = new TF1(Form("bg%d",i),"pol2",
+		    fresp->GetParameter(1) - nSig*fresp->GetParameter(2),
+		    fresp->GetParameter(1) + nSig*fresp->GetParameter(2));
+      fbg->SetParameters(fresp->GetParameter(3),
+			 fresp->GetParameter(4),
+			 fresp->GetParameter(5));}
+    else {
+      fbg = new TF1(Form("bg%d",i),"expo(0)+expo(2)",
+		    fresp->GetParameter(1) - nSig*fresp->GetParameter(2),
+		    fresp->GetParameter(1) + nSig*fresp->GetParameter(2));
+      fbg->SetParameters(fresp->GetParameter(3),
+			 fresp->GetParameter(4),
+			 fresp->GetParameter(5),
+			 fresp->GetParameter(6));}
     
     //////////////////////////////
     // Results
@@ -336,7 +413,7 @@ void Ana::FitSpectrum(TH1* hist, Double_t sig, Bool_t drawFlag, Double_t lowR, D
     f1->Draw("SAME");  }
   ////////////////////////////////////////
 
-  DrawGlobalTitle();
+  //  DrawGlobalTitle();
 }
 
 void Ana::DrawGlobalTitle() {
@@ -344,7 +421,7 @@ void Ana::DrawGlobalTitle() {
   pl.DrawPaveLabel(0.15,0.92,0.65,0.99,
 		   Form("Run%04d: %s",nRun,runTitle.Data()),"NDC");}
 
-void Ana::FitSingleChannel(Double_t sig, Bool_t doubleFlag, Double_t lowR, Double_t uppR, Int_t maxPeak, Int_t nSig, Double_t lowRP, Double_t uppRP) {
+void Ana::FitSingleChannel(Double_t sig, Bool_t doubleFlag, Double_t lowR, Double_t uppR, Int_t maxPeak, Double_t nSig, Double_t lowRP, Double_t uppRP) {
 
   tree->Draw("Energy>>h0(4000,0,4000)",0,"GOFF");
   TH1* h1 = static_cast<TH1*>(gDirectory->Get("h0"));
@@ -353,28 +430,25 @@ void Ana::FitSingleChannel(Double_t sig, Bool_t doubleFlag, Double_t lowR, Doubl
   else FitSpectrum(h1, sig, true, lowR, uppR, maxPeak, nSig);
 }
 
-void Ana::FitEachChannel(Double_t sig) {
-
-  for (Int_t i = 0 ; i < 4 ; i++) {
-    tree->Draw(Form("Energy>>h%d(4000,0,4000)",i),
-	       Form("Channel == %d && NCoin == 4",i),
-	       "GOFF");
-    TH1* h1 = static_cast<TH1*>(gDirectory->Get(Form("h%d",i)));
-
-    std::cout << "Fit the spectrum for Channel " << i << "." << std::endl;
-    FitSpectrum(h1, sig, false);
-    std::cout << std::endl;}
+void Ana::FitEachChannel(Double_t sig, Double_t lowR, Double_t uppR,
+			 Int_t maxPeak, Double_t nSig) {
 
   TCanvas *c1 = new TCanvas;
   c1->Divide(2,2);
+
   for (Int_t i = 0 ; i < 4 ; i++) {
     c1->cd(i+1);
+    treeMult->Draw(Form("energy[%d]>>h%d(4000,0,4000)",i,i),
+		   "nCh == 4", "GOFF");
     TH1* h1 = static_cast<TH1*>(gDirectory->Get(Form("h%d",i)));
-    h1->Draw();}
 
-  c1->cd();
-  DrawGlobalTitle();
-}
+    std::cout << "Fit the spectrum for Channel " << i << "." << std::endl;
+    FitSpectrum(h1, sig, true, lowR, uppR, maxPeak, nSig, 1);
+    std::cout << std::endl;
+    DrawGlobalTitle();}
+
+
+  c1->cd();}
 
 void Ana::MakeMult(ULong64_t tWidth) {
   if (fileMult) delete fileMult;
@@ -417,7 +491,7 @@ void Ana::MakeMult(ULong64_t tWidth) {
 	
   treeMult->Write(0,TObject::kOverwrite);}
 
-void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t sig, Bool_t drawFlag, Double_t lowRP, Double_t uppRP, Int_t maxPeak, Int_t nSig) {
+void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t sig, Bool_t drawFlag, Double_t lowRP, Double_t uppRP, Int_t maxPeak, Double_t nSig, Int_t bgSel) {
 
   //////////////////////////////
   // Axis range
@@ -473,19 +547,46 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
     std::cerr << "Rough fit error for the peak." << std::endl;
     return; }
 
-  Double_t fitParBG[3];
-  for (Int_t i = 0 ; i < 3 ; i++)
-    fitParBG[i] = hist->GetFunction("pol2")->GetParameter(i);
-
+  Double_t fitParBG[50];
+  if (bgSel == 0) { // polynomial BG
+    fitRes = hist->Fit("pol2","Q0",0,lowR, uppR);
+    if (fitRes != 0) {
+      std::cerr << "Rough fit error for the peak.";
+      return; }
+    for (Int_t j = 0 ; j < 3 ; j++) 
+      fitParBG[j] = hist->GetFunction("pol2")->GetParameter(j);}
   
+  if (bgSel == 1) { // exponential BG
+    fitRes = hist->Fit("expo","Q0",0,lowR,uppR);
+    if (fitRes != 0) {
+      std::cerr << "Rough fit error for the peak.";
+      return; }
+    fitParBG[0] = hist->GetFunction("expo")->GetParameter(0);
+    fitParBG[1] = hist->GetFunction("expo")->GetParameter(1);
+      
+    fitRes = hist->Fit("expo","Q0",0,lowR,uppR);
+    if (fitRes != 0) {
+      std::cerr << "Rough fit error for the peak.";
+      return; }
+    fitParBG[2] = hist->GetFunction("expo")->GetParameter(0);
+    fitParBG[3] = hist->GetFunction("expo")->GetParameter(1) * 2;}
+
   //////////////////////
 
   ////////////////////
   // real fit
-  TF1 *fresp = new TF1("respd","gaus(0)+gaus(3)+pol2(6)",lowR,uppR);
-  fresp->SetParameters(fitParGaus0[0],fitParGaus0[1],fitParGaus0[2],
-		       fitParGaus1[0],fitParGaus1[1],fitParGaus1[2],
-		       fitParBG   [0],fitParBG   [1],fitParBG   [2]);
+  TF1* fresp;
+  if (bgSel == 0) {
+    fresp = new TF1("resp","gaus(0)+gaus(3)+pol2(6)",lowR,uppR);
+    fresp->SetParameters(fitParGaus0[0],fitParGaus0[1],fitParGaus0[2],
+			 fitParGaus1[0],fitParGaus1[1],fitParGaus1[2],
+			 fitParBG   [0],fitParBG   [1],fitParBG   [2]);}
+  else {
+    fresp = new TF1("resp","gaus(0)+gaus(3)+expo(6)+expo(8)",lowR,uppR);
+    fresp->SetParameters(fitParGaus0[0],fitParGaus0[1],fitParGaus0[2],
+			 fitParGaus1[0],fitParGaus1[1],fitParGaus1[2],
+			 fitParBG[0],fitParBG[1],fitParBG[2],fitParBG[3]);}
+
   Double_t lowFitR, uppFitR;
   if (fitParGaus0[1] < fitParGaus1[1]) {
     lowFitR = fitParGaus0[1] - nSig * fitParGaus0[2];
@@ -503,9 +604,22 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
 
   ////////////////////
   // Resulted functions
-  TF1 *fbg = new TF1("bg","pol2", lowR, uppR);
-  fbg->SetParameters(fresp->GetParameter(6),fresp->GetParameter(7),fresp->GetParameter(8));
-    
+  fresp->SetRange(lowFitR, uppFitR);
+  
+  TF1 *fbg;
+  if (bgSel == 0) {
+    fbg = new TF1("bg","pol2", lowFitR, uppFitR);
+    fbg->SetParameters(fresp->GetParameter(6),
+		       fresp->GetParameter(7),
+		       fresp->GetParameter(8));}
+  else {
+    fbg = new TF1("bg","expo(0)+expo(2)",lowFitR,uppFitR);
+    fbg->SetParameters(fresp->GetParameter(6),
+		       fresp->GetParameter(7),
+		       fresp->GetParameter(8),
+		       fresp->GetParameter(9));}
+
+  
   //////////////////////////////
   // Results
   std::cout << "Peak " << 0 << " : ";
@@ -540,3 +654,23 @@ void Ana::FitSpectrumDouble(TH1* hist, Double_t lowR, Double_t uppR, Double_t si
 
   DrawGlobalTitle();
 }
+
+void Ana::FitChannelSum(Double_t sig, Double_t lowR, Double_t uppR,
+			Int_t maxPeak, Double_t nSig, Int_t bgSel,
+			Bool_t flagDouble, Bool_t flagGeo) {
+
+  Double_t gain[4] = { 1.000, 1.152, 1.255, 1.134 };
+
+  if (flagGeo)
+    treeMult->Draw("(energy[0]*energy[1]*energy[2]*energy[3])**0.25>>hsum(4000,0,4000)",
+		   "nCh == 4", "GOFF");
+  else
+    treeMult->Draw(Form("(energy[0]*%f + energy[1]*%f + energy[2]*%f + energy[3]*%f)/4>>hsum(4000,0,4000)",gain[0],gain[1],gain[2],gain[3]),
+		   "nCh == 4", "GOFF");
+
+  TH1* h1 = static_cast<TH1*>(gDirectory->Get("hsum"));
+
+  if (flagDouble) FitSpectrumDouble(h1, lowR, uppR, sig,
+				    true, 0, 1400, maxPeak, nSig, bgSel);
+  else FitSpectrum(h1, sig, true, lowR, uppR, maxPeak, nSig, bgSel);
+  DrawGlobalTitle();}
